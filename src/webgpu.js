@@ -1,5 +1,5 @@
 const WGSL=`
-struct Globals { viewport: vec2<f32>, camera: vec2<f32>, time: f32, intensity: f32 };
+struct Globals { viewport: vec2<f32>, camera: vec2<f32>, time: f32, intensity: f32, focal: f32, horizon: f32 };
 @group(0) @binding(0) var<uniform> g: Globals;
 
 struct VIn {
@@ -8,6 +8,7 @@ struct VIn {
   @location(2) radius: f32,
   @location(3) color: vec4<f32>,
   @location(4) kind: f32,
+  @location(5) depth: f32,
 };
 struct VOut {
   @builtin(position) position: vec4<f32>,
@@ -19,7 +20,9 @@ struct VOut {
 @vertex fn vs(v: VIn) -> VOut {
   var o: VOut;
   let world = v.pos - g.camera;
-  let pixel = world + v.corner * v.radius;
+  let perspective = clamp(g.focal / (g.focal + max(0.0, v.depth)), 0.28, 1.0);
+  let elevatedY = world.y - v.depth * 0.18;
+  let pixel = vec2<f32>(world.x * perspective, (elevatedY - g.horizon) * perspective + g.horizon) + v.corner * v.radius * perspective;
   let clip = vec2<f32>(pixel.x / g.viewport.x * 2.0, -pixel.y / g.viewport.y * 2.0);
   o.position = vec4<f32>(clip, 0.0, 1.0);
   o.uv = v.corner;
@@ -68,11 +71,12 @@ export class EchoVoidWebGPU {
         entryPoint: 'vs',
         buffers: [
           { arrayStride: 8, stepMode: 'vertex', attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }] },
-          { arrayStride: 32, stepMode: 'instance', attributes: [
+          { arrayStride: 36, stepMode: 'instance', attributes: [
             { shaderLocation: 1, offset: 0, format: 'float32x2' },
             { shaderLocation: 2, offset: 8, format: 'float32' },
             { shaderLocation: 3, offset: 12, format: 'float32x4' },
             { shaderLocation: 4, offset: 28, format: 'float32' },
+            { shaderLocation: 5, offset: 32, format: 'float32' },
           ] },
         ],
       },
@@ -115,7 +119,7 @@ export class EchoVoidWebGPU {
     this.instanceCapacity = Math.max(count, this.instanceCapacity * 2, 64);
     this.instanceBuffer?.destroy();
     this.instanceBuffer = this.device.createBuffer({
-      size: this.instanceCapacity * 32,
+      size: this.instanceCapacity * 36,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
   }
@@ -126,24 +130,33 @@ export class EchoVoidWebGPU {
     const w = this.canvas.width / dpr;
     const h = this.canvas.height / dpr;
     const data = [];
-    const add = (x,y,r,c,k=0) => data.push(x,y,r,c[0],c[1],c[2],c[3],k);
+    const horizon = h * 0.58;
+    const depth = Math.min(1400, Math.max(w,h) * 1.4);
+    for(let i=0;i<26;i++){
+      const x=(i-13)*150 + Math.sin(i*2.17)*45;
+      const z=120+(i*173)%depth;
+      const y=state.player.y + (z*0.18);
+      const size=18+(i%5)*7;
+      add(x,y,size,[ac[0],ac[1],ac[2],0.10+state.intensity*0.08],11,z);
+    }
+    const add = (x,y,r,c,k=0,z=0) => data.push(x,y,r,c[0],c[1],c[2],c[3],k,z);
 
     const accent = state.accent;
     const ac = state.accentRgb;
     for (const z of state.safeZones) {
-      add(z.x,z.y,z.r,[0.25,1,0.78,0.20],5);
-      add(z.x,z.y,z.r*.62,[0.25,1,0.78,0.10],5);
+      add(z.x,z.y,z.r,[0.25,1,0.78,0.20],5,40);
+      add(z.x,z.y,z.r*.62,[0.25,1,0.78,0.10],5,35);
     }
-    if (state.boss) add(state.boss.x,state.boss.y,state.boss.r,[ac[0],ac[1],ac[2],1],9);
+    if (state.boss) add(state.boss.x,state.boss.y,state.boss.r,[ac[0],ac[1],ac[2],1],9,20);
     for (const m of state.monsters) {
       const c = m.type==='BASS'?[1,.25,.32,1]:m.type==='TREBLE'?[.45,.55,1,1]:m.type==='VOCAL'?[1,.35,.75,1]:[.55,1,.8,1];
-      add(m.x,m.y,m.r,c,m.type==='BASS'?1:m.type==='TREBLE'?2:m.type==='VOCAL'?3:4);
-      if (m.state==='telegraph') add(m.x,m.y,m.r*1.55,[1,1,1,.65],8);
+      add(m.x,m.y,m.r,c,m.type==='BASS'?1:m.type==='TREBLE'?2:m.type==='VOCAL'?3:4,12);
+      if (m.state==='telegraph') add(m.x,m.y,m.r*1.55,[1,1,1,.65],8,8);
     }
-    add(state.player.x,state.player.y,state.player.r,[.94,.97,1,1],10);
-    this.ensureCapacity(data.length / 8);
+    add(state.player.x,state.player.y,state.player.r,[.94,.97,1,1],10,0);
+    this.ensureCapacity(data.length / 9);
 
-    const globals = new Float32Array([w,h,state.player.x*dpr,state.player.y*dpr,state.time,state.intensity,0,0]);
+    const globals = new Float32Array([w,h,state.player.x*dpr,state.player.y*dpr,state.time,state.intensity,520, h*0.58]);
     this.device.queue.writeBuffer(this.uniformBuffer,0,globals);
     this.device.queue.writeBuffer(this.instanceBuffer,0,new Float32Array(data));
 
@@ -159,7 +172,7 @@ export class EchoVoidWebGPU {
     pass.setBindGroup(0,this.uniformBindGroup);
     pass.setVertexBuffer(0,this.vertexBuffer);
     pass.setVertexBuffer(1,this.instanceBuffer);
-    pass.draw(6,data.length/8,0,0);
+    pass.draw(6,data.length/9,0,0);
     pass.end();
     this.device.queue.submit([encoder.finish()]);
   }
