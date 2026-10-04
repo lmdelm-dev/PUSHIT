@@ -1,5 +1,5 @@
 const WGSL=`
-struct Globals { viewport: vec2<f32>, camera: vec2<f32>, time: f32, pad: f32 };
+struct Globals { viewport: vec2<f32>, camera: vec2<f32>, time: f32, intensity: f32 };
 @group(0) @binding(0) var<uniform> g: Globals;
 
 struct VIn {
@@ -143,7 +143,7 @@ export class EchoVoidWebGPU {
     add(state.player.x,state.player.y,state.player.r,[.94,.97,1,1],10);
     this.ensureCapacity(data.length / 8);
 
-    const globals = new Float32Array([w,h,state.player.x*dpr,state.player.y*dpr,state.time,0,0,0]);
+    const globals = new Float32Array([w,h,state.player.x*dpr,state.player.y*dpr,state.time,state.intensity,0,0]);
     this.device.queue.writeBuffer(this.uniformBuffer,0,globals);
     this.device.queue.writeBuffer(this.instanceBuffer,0,new Float32Array(data));
 
