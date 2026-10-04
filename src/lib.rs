@@ -16,6 +16,28 @@ pub struct Monster {
     pub phase: f32,
 }
 
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorldProp {
+    pub id: u32,
+    pub x: f32,
+    pub y: f32,
+    pub scale: f32,
+    pub rotation: f32,
+    pub kind: u8,
+    pub depth: f32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorldFrame {
+    pub seed: u32,
+    pub biome: u8,
+    pub style: u8,
+    pub weather: u8,
+    pub props: Vec<WorldProp>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Frame {
@@ -43,6 +65,33 @@ impl EchoVoidCore {
             next_id: 1,
             mutation: 0,
         }
+    }
+
+    /// Deterministically creates a compact world descriptor from a seed.
+    /// biome/style/weather are intentionally numeric so the renderer can map them to
+    /// radically different visual themes without putting rendering logic in WASM.
+    pub fn generate_world(&mut self, seed: u32, biome: u8, style: u8, weather: u8) -> JsValue {
+        let mut rng = SmallRng::seed_from_u64(seed as u64);
+        let count = 36 + (seed % 20) as usize;
+        let mut props = Vec::with_capacity(count);
+        for id in 0..count as u32 {
+            let angle = rng.random_range(0.0..std::f32::consts::TAU);
+            let radius = rng.random_range(180.0..1150.0);
+            let x = angle.cos() * radius + rng.random_range(-90.0..90.0);
+            let y = angle.sin() * radius + rng.random_range(-70.0..70.0);
+            let depth = rng.random_range(20.0..1500.0);
+            props.push(WorldProp {
+                id,
+                x,
+                y,
+                scale: rng.random_range(0.65..1.75),
+                rotation: rng.random_range(0.0..std::f32::consts::TAU),
+                kind: rng.random_range(0..8),
+                depth,
+            });
+        }
+        let frame = WorldFrame { seed, biome: biome % 8, style: style % 8, weather: weather % 8, props };
+        serde_wasm_bindgen::to_value(&frame).unwrap()
     }
 
     pub fn spawn(&mut self, x: f32, y: f32, sound_kind: u8, entry: u8, intensity: f32) -> u32 {
