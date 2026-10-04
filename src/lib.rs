@@ -11,6 +11,7 @@ pub struct Monster {
     pub radius: f32,
     pub kind: u8,
     pub state: u8,
+    pub entry: u8,
     pub health: f32,
     pub speed: f32,
     pub phase: f32,
@@ -82,7 +83,7 @@ impl EchoVoidCore {
         let radius = 12.0 + self.rng.random_range(0.0..12.0) + self.mutation as f32 * 2.0;
         let speed = 55.0 + intensity * 120.0 + self.mutation as f32 * 15.0;
         let id = self.next_id; self.next_id += 1;
-        self.monsters.push(Monster { id, x, y, radius, kind: sound_kind, state: entry, health: 1.0+self.mutation as f32*.35, speed, phase: self.rng.random_range(0.0..6.283) });
+        self.monsters.push(Monster { id, x, y, radius, kind: sound_kind, state: entry, entry, health: 1.0+self.mutation as f32*.35, speed, phase: self.rng.random_range(0.0..6.283) });
         id
     }
 
@@ -99,31 +100,27 @@ impl EchoVoidCore {
             let nx=dx/len; let ny=dy/len;
             let mut vx=nx*m.speed*(0.7+danger*.7); let mut vy=ny*m.speed*(0.7+danger*.7);
             match m.kind {
-                // BASS CHARGER: circles briefly, then commits to a fast charge.
                 1 => {
-                    let charge=((m.phase.sin()+1.0)*0.5);
+                    let charge=(m.phase.sin()+1.0)*0.5;
                     let side=if m.phase.sin()>0.0 {1.0} else {-1.0};
                     vx=nx*m.speed*(1.0+charge*1.8)+(-ny)*side*m.speed*.28;
-                    vy=ny*m.speed*(1.0+charge*1.8)+( nx)*side*m.speed*.28;
+                    vy=ny*m.speed*(1.0+charge*1.8)+(nx)*side*m.speed*.28;
                     m.phase+=dt*(1.5+danger*3.5);
-                    m.state=if charge>.78 {5} else {m.state};
+                    m.state=if charge>.78 {5} else {m.entry};
                 }
-                // TREBLE STALKER: strafes/orbits instead of running directly at the player.
                 2 => {
                     let side=if m.phase.sin()>0.0 {1.0} else {-1.0};
-                    vx=nx*m.speed*.52 + (-ny)*side*m.speed*.92;
-                    vy=ny*m.speed*.52 + ( nx)*side*m.speed*.92;
+                    vx=nx*m.speed*.52+(-ny)*side*m.speed*.92;
+                    vy=ny*m.speed*.52+(nx)*side*m.speed*.92;
                     m.phase+=dt*(3.0+danger*6.0);
                     m.state=4;
                 }
-                // VOCAL EATER: approaches slowly, then lunges when close.
                 3 => {
                     let lunge=if len<230.0 {2.2} else {0.72};
                     vx=nx*m.speed*lunge; vy=ny*m.speed*lunge;
                     m.phase+=dt*(1.2+danger*2.0);
-                    m.state=if len<230.0 {6} else {m.state};
+                    m.state=if len<230.0 {6} else {m.entry};
                 }
-                // RHYTHM HUNTER: predicts the player's movement and intercepts.
                 _ => {
                     let lead=(90.0+danger*150.0)/m.speed.max(1.0);
                     let tx=px+nx*m.speed*lead; let ty=py+ny*m.speed*lead;
