@@ -143,7 +143,7 @@ export class EchoVoidWebGPU {
     add(state.player.x,state.player.y,state.player.r,[.94,.97,1,1],10);
     this.ensureCapacity(data.length / 8);
 
-    const globals = new Float32Array([w,h,state.player.x,state.player.y,state.time,0,0,0]);
+    const globals = new Float32Array([w,h,state.player.x*dpr,state.player.y*dpr,state.time,0,0,0]);
     this.device.queue.writeBuffer(this.uniformBuffer,0,globals);
     this.device.queue.writeBuffer(this.instanceBuffer,0,new Float32Array(data));
 
