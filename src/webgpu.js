@@ -1,3 +1,5 @@
+import { Camera } from './camera.js';
+
 const WGSL = `
 struct Globals {
   viewport: vec2<f32>,
@@ -221,6 +223,7 @@ export class EchoVoidWebGPU {
     this.uniformBindGroup=null; this.instanceBuffer=null; this.instanceCapacity=0;
     this.terrainBuffer=null; this.terrainVertexCount=0; this.depthTexture=null;
     this.fogState=null; this._lastT=0;
+    this._cam=null; this._camT=undefined;
     this.ready=false;
   }
 
@@ -477,8 +480,24 @@ export class EchoVoidWebGPU {
     const fog=this.updateFog(state);
     const dt=Math.min(Math.max(fin(state.time)-(this._lastShadowT??fin(state.time)),0),0.1); this._lastShadowT=fin(state.time);
     const sh=this.updateShadow(state,dt);
+    const nowT=fin(state.time);
+    let camDt=1/60;
+    if(this._camT!==undefined){camDt=Math.min(Math.max(nowT-this._camT,0),0.1);}
+    this._camT=nowT;
+    if(!this._cam){this._cam=new Camera();}
+    const cam=this._cam.update({
+      playerX:fin(state.player.x),playerY:fin(state.player.y),
+      playerVX:fin(state.playerVX),playerVY:fin(state.playerVY),
+      sprinting:!!state.sprinting,dodging:!!state.dodging,
+      hasBoss:!!(state.hasBoss||state.boss),
+      bossX:state.boss?fin(state.boss.x):fin(state.bossX),
+      bossY:state.boss?fin(state.boss.y):fin(state.bossY),
+      bass:fin(state.bass),treble:fin(state.treble),intensity:fin(state.intensity),
+      beat:fin(state.beat),bassSpike:fin(state.bassSpike),silence:fin(state.silence),
+      worldName:state.worldName,time:nowT,dt:camDt,viewH:h
+    });
     const globals=new Float32Array([
-      w,h,fin(state.player.x),fin(state.player.y),fin(state.time),fin(state.intensity),520,h*.58,
+      w,h,cam.x+cam.shakeX,cam.y+cam.shakeY,nowT,fin(state.intensity),cam.focal,cam.horizon,
       fog.color[0],fog.color[1],fog.color[2],fog.density,
       fog.height,fog.silence,fog.glitch,fog.void,
       sh.L[0],sh.L[1],sh.L[2],sh.strength,
