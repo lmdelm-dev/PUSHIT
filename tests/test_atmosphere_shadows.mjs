@@ -1,0 +1,67 @@
+﻿import { readFileSync } from "node:fs";
+import { EchoVoidWebGPU } from "./webgpu_under_test.mjs";
+const webgpuSrc = readFileSync(new URL("../src/webgpu.js", import.meta.url), "utf8");
+const gameSrc = readFileSync(new URL("../src/game.js", import.meta.url), "utf8");
+let pass = 0; let fail = 0; const out = [];
+function check(name, cond, detail) { if (cond) { pass++; out.push("PASS " + name); } else { fail++; out.push("FAIL " + name + " " + (detail || "")); } }
+function finite(x) { return Number.isFinite(x); }
+function allFinite(a) { for (let i = 0; i < a.length; i++) { if (!finite(a[i])) return false; } return true; }
+check("WGSL fog uniforms", /fog: vec4/.test(webgpuSrc) && /fogP: vec4/.test(webgpuSrc));
+check("WGSL fog_amount fn", /fog_amount/.test(webgpuSrc));
+check("WGSL apply_fog fn", /apply_fog/.test(webgpuSrc));
+check("WGSL terrain applies fog", /terrain_fs/.test(webgpuSrc) && /apply_fog/.test(webgpuSrc));
+check("WGSL light uniforms", /light: vec4/.test(webgpuSrc) && /shadowP: vec4/.test(webgpuSrc));
+check("WGSL shadow_vs pass", /shadow_vs/.test(webgpuSrc));
+check("WGSL shadow_factor PCF", /shadow_factor/.test(webgpuSrc) && /textureSampleCompareLevel/.test(webgpuSrc));
+check("WGSL blob shadows", /blob_vs/.test(webgpuSrc) && /blob_fs/.test(webgpuSrc));
+check("shadow tex 1024 depth32float", /SHADOW_SIZE *= *1024/.test(webgpuSrc) && /depth32float/.test(webgpuSrc));
+check("blobPipeline and shadowPipeline", /blobPipeline/.test(webgpuSrc) && /shadowPipeline/.test(webgpuSrc));
+check("depth attachment present", /depthStencilAttachment/.test(webgpuSrc));
+check("instance stride 36", /arrayStride: *36/.test(webgpuSrc));
+check("no buggy stride 28", /arrayStride: *28/.test(webgpuSrc) === false);
+check("uniform buffer 96", /createBuffer/.test(webgpuSrc) && /size: *96/.test(webgpuSrc));
+check("PROP_COUNT 44", /PROP_COUNT *= *44/.test(webgpuSrc));
+check("addProps seeded", /addProps/.test(webgpuSrc) && /mulberry32/.test(webgpuSrc));
+check("buildTerrain seeded", /buildTerrain *\(seed/.test(webgpuSrc));
+check("game silence calc", /silence *= *0/.test(gameSrc) && /Math.max\(silence/.test(gameSrc));
+check("game passes audio to gpu", /worldName/.test(gameSrc) && /beat:beatPulse/.test(gameSrc) && /silence/.test(gameSrc));
+check("DPR clamp", /Math.min\(devicePixelRatio/.test(webgpuSrc));
+const r = new EchoVoidWebGPU(null); check("has updateFog method", typeof r.updateFog === "function"); check("has updateShadow method", typeof r.updateShadow === "function"); check("has buildTerrain seed param", /buildTerrain/.test(webgpuSrc)); if (typeof r.updateFog !== "function" || typeof r.updateShadow !== "function") { console.log(out.join("\n")); console.log(pass + " passed, " + fail + " failed"); process.exit(1); }
+const base = { time: 10, bass: 0.5, treble: 0.2, beat: 0, intensity: 0.5, silence: 0, worldName: "CALM MEADOW", bg: [0.08, 0.16, 0.18], accentRgb: [0.45, 0.84, 0.78], visualMode: 0 };
+const f1 = r.updateFog(base);
+check("fog finite", allFinite(f1.color) && finite(f1.density) && finite(f1.height));
+check("fog density positive", f1.density > 0);
+r.fogState = null; r._lastT = 0;
+const fSil = r.updateFog({ time: 10, bass: 0.5, treble: 0.2, beat: 0, intensity: 0.5, silence: 1, worldName: "CALM MEADOW", bg: [0.08, 0.16, 0.18], accentRgb: [0.45, 0.84, 0.78], visualMode: 0 });
+r.fogState = null; r._lastT = 0;
+const fLoud = r.updateFog({ time: 10, bass: 0.5, treble: 0.2, beat: 0, intensity: 0.5, silence: 0, worldName: "CALM MEADOW", bg: [0.08, 0.16, 0.18], accentRgb: [0.45, 0.84, 0.78], visualMode: 0 });
+check("silence clears fog", fSil.density < fLoud.density);
+check("silence darkens", fSil.color[0] <= fLoud.color[0] + 0.001 && fSil.color[1] <= fLoud.color[1] + 0.001);
+r.fogState = null; r._lastT = 0;
+const fBass = r.updateFog({ time: 10, bass: 1, treble: 0, beat: 0, intensity: 0.5, silence: 0, worldName: "CALM MEADOW", bg: [0.08, 0.16, 0.18], accentRgb: [0.45, 0.84, 0.78], visualMode: 0 });
+r.fogState = null; r._lastT = 0;
+const fCalm = r.updateFog({ time: 10, bass: 0, treble: 0, beat: 0, intensity: 0.1, silence: 0, worldName: "CALM MEADOW", bg: [0.08, 0.16, 0.18], accentRgb: [0.45, 0.84, 0.78], visualMode: 0 });
+check("bass thickens fog", fBass.density > fCalm.density);
+r.fogState = null; r._lastT = 0;
+const fVoid = r.updateFog({ time: 10, bass: 0.5, treble: 0.2, beat: 0, intensity: 0.5, silence: 0, worldName: "VOID GARDEN", bg: [0.02, 0.02, 0.04], accentRgb: [0.85, 0.85, 1], visualMode: 5 });
+check("void flag", fVoid.void === 1);
+r.fogState = null; r._lastT = 0;
+const fGlitch = r.updateFog({ time: 10, bass: 0.5, treble: 0.2, beat: 0, intensity: 0.5, silence: 0, worldName: "GLITCH DESERT", bg: [0.16, 0.14, 0.08], accentRgb: [0.9, 0.83, 0.42], visualMode: 4 });
+check("glitch flag", fGlitch.glitch === 1);
+const s1 = r.updateShadow({ bass: 0.5, intensity: 0.5, silence: 0, time: 10 }, 0.016);
+check("shadow shape", s1.L.length === 3 && s1.vp.length === 16 && finite(s1.strength));
+check("shadow range", s1.strength >= 0 && s1.strength <= 1);
+const r2 = new EchoVoidWebGPU(null);
+const sSilent = r2.updateShadow({ bass: 0.8, intensity: 0.9, silence: 1, time: 10 }, 0.5);
+const r3 = new EchoVoidWebGPU(null);
+const sLoud = r3.updateShadow({ bass: 0.8, intensity: 0.9, silence: 0, time: 10 }, 0.5);
+check("silence kills light", sSilent.strength < sLoud.strength);
+const r5 = new EchoVoidWebGPU(null);
+const sBad = r5.updateShadow({ bass: NaN, intensity: undefined, silence: Infinity, time: NaN }, NaN);
+check("shadow garbage finite", finite(sBad.strength));
+const underTestSrc = readFileSync(new URL("./webgpu_under_test.mjs", import.meta.url), "utf8");
+check("test copy in sync", underTestSrc === webgpuSrc);
+console.log(out.join("\n"));
+console.log(pass + " passed, " + fail + " failed");
+process.exit(fail ? 1 : 0);
+
