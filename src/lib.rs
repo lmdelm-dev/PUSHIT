@@ -45,6 +45,10 @@ pub struct Frame {
     pub intensity: f32,
     pub danger: f32,
     pub mutation: u8,
+    pub player_damage: f32,
+    pub knockback_x: f32,
+    pub knockback_y: f32,
+    pub hit_count: u32,
 }
 
 #[wasm_bindgen]
@@ -67,9 +71,6 @@ impl EchoVoidCore {
         }
     }
 
-    /// Deterministically creates a compact world descriptor from a seed.
-    /// biome/style/weather are intentionally numeric so the renderer can map them to
-    /// radically different visual themes without putting rendering logic in WASM.
     pub fn generate_world(&mut self, seed: u32, biome: u8, style: u8, weather: u8) -> JsValue {
         let mut rng = SmallRng::seed_from_u64(seed as u64);
         let count = 36 + (seed % 20) as usize;
@@ -118,6 +119,11 @@ impl EchoVoidCore {
 
     pub fn tick(&mut self, dt: f32, px: f32, py: f32, intensity: f32, hidden: bool) -> JsValue {
         let danger = intensity.clamp(0.0, 1.0);
+        let mut player_damage = 0.0;
+        let mut knockback_x = 0.0;
+        let mut knockback_y = 0.0;
+        let mut hit_count = 0;
+
         if !hidden {
             for m in &mut self.monsters {
                 let dx = px - m.x;
@@ -130,18 +136,38 @@ impl EchoVoidCore {
                 m.x += dx / len * speed * dt;
                 m.y += dy / len * speed * dt;
                 m.phase += dt * (2.0 + danger * 5.0);
+
+                let collision = m.radius + 16.0;
+                if len <= collision {
+                    let damage = match m.kind {
+                        1 => 0.035,
+                        2 => 0.055,
+                        3 => 0.075,
+                        _ => 0.045,
+                    } * (0.7 + danger * 0.9);
+                    player_damage += damage;
+                    knockback_x += dx / len * (80.0 + danger * 70.0);
+                    knockback_y += dy / len * (80.0 + danger * 70.0);
+                    hit_count += 1;
+                }
             }
         }
+
         self.monsters.retain(|m| {
             let dx = m.x - px;
             let dy = m.y - py;
             dx * dx + dy * dy < 3000.0 * 3000.0 && m.health > 0.0
         });
+
         let frame = Frame {
             monsters: self.monsters.clone(),
             intensity: danger,
             danger: danger * (1.0 + self.mutation as f32 * 0.18),
             mutation: self.mutation,
+            player_damage,
+            knockback_x,
+            knockback_y,
+            hit_count,
         };
         serde_wasm_bindgen::to_value(&frame).unwrap()
     }
@@ -150,6 +176,22 @@ impl EchoVoidCore {
         if let Some(m) = self.monsters.iter_mut().find(|m| m.id == id) {
             m.health -= amount.max(0.0);
         }
+    }
+
+    pub fn attack(&mut self, px: f32, py: f32, radius: f32, damage: f32) -> u32 {
+        let r = radius.max(1.0);
+        let dmg = damage.max(0.0);
+        let mut hits = 0;
+        for m in &mut self.monsters {
+            let dx = m.x - px;
+            let dy = m.y - py;
+            if dx * dx + dy * dy <= (r + m.radius) * (r + m.radius) {
+                m.health -= dmg;
+                m.state = 3;
+                hits += 1;
+            }
+        }
+        hits
     }
 
     pub fn clear(&mut self) {
